@@ -535,9 +535,10 @@ export class TaskDetailPanelComponent implements OnInit, AfterViewInit, OnDestro
   }
 
   @HostListener('paste', ['$event']) async onPaste(ev: ClipboardEvent): Promise<void> {
-    // Let existing textarea/input/contenteditable paste handlers work normally
+    // Let existing textarea/input/contenteditable paste handlers work normally,
+    // except for task-title where an image paste attaches the image to this task.
     const target = ev.target as HTMLElement;
-    if (isInputElement(target)) {
+    if (isInputElement(target) && !target?.closest?.('task-title')) {
       return;
     }
 

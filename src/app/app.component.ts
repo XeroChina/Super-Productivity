@@ -62,6 +62,8 @@ import { Store } from '@ngrx/store';
 import { TranslatePipe, TranslateService } from '@ngx-translate/core';
 import { MatDialog } from '@angular/material/dialog';
 import { MarkdownPasteService } from './features/tasks/markdown-paste.service';
+import { ClipboardImageService } from './core/clipboard-image/clipboard-image.service';
+import { clipboardHasText } from './util/clipboard-has-text';
 import { TaskService } from './features/tasks/task.service';
 import { TaskAttachmentService } from './features/tasks/task-attachment/task-attachment.service';
 import { MatMenu, MatMenuContent, MatMenuItem } from '@angular/material/menu';
@@ -158,6 +160,7 @@ export class AppComponent implements OnDestroy, AfterViewInit {
   private _activatedRoute = inject(ActivatedRoute);
   private _matDialog = inject(MatDialog);
   private _markdownPasteService = inject(MarkdownPasteService);
+  private _clipboardImageService = inject(ClipboardImageService);
   private _taskService = inject(TaskService);
   private _boardsService = inject(BoardsService);
   private _taskAttachmentService = inject(TaskAttachmentService);
@@ -367,12 +370,40 @@ export class AppComponent implements OnDestroy, AfterViewInit {
   }
 
   @HostListener('document:paste', ['$event']) onPaste(ev: ClipboardEvent): void {
-    // Skip handling inside input elements
+    if (ev.defaultPrevented) return;
     const target = ev.target as HTMLElement;
-    if (isInputElement(target)) return;
-
     const clipboardData = ev.clipboardData;
     if (!clipboardData) return;
+
+    // TickTick-style image paste on a task row or while editing a task title:
+    // attach the pasted image directly to that task.
+    if (!clipboardHasText(clipboardData)) {
+      const taskEl = target?.closest?.<HTMLElement>('[data-task-id]');
+      const targetTaskId =
+        taskEl?.getAttribute('data-task-id') || this._taskService.selectedTaskId();
+      if (targetTaskId && (!isInputElement(target) || !!target.closest('task-title'))) {
+        const progress = this._clipboardImageService.handlePasteWithProgress(ev);
+        if (progress) {
+          ev.preventDefault();
+          void progress.resultPromise.then((result) => {
+            if (result.success && result.imageUrl) {
+              this._taskAttachmentService.addAttachment(targetTaskId, {
+                id: null,
+                type: 'IMG',
+                path: result.imageUrl,
+                title: this._translateService.instant(
+                  T.F.TASK.ADDITIONAL_INFO.PASTED_IMAGE_TITLE,
+                ),
+              });
+            }
+          });
+          return;
+        }
+      }
+    }
+
+    // Skip handling inside input elements
+    if (isInputElement(target)) return;
 
     const pastedText = clipboardData.getData('text/plain');
     if (!pastedText) return;

@@ -95,6 +95,10 @@ import { DateService } from '../../../core/date/date.service';
 import { MenuTreeService } from '../../menu-tree/menu-tree.service';
 import { SelectOptionRowComponent } from '../../../ui/select-option-row/select-option-row.component';
 import { toPersistableRemindOption } from '../../planner/dialog-schedule-task/task-reminder-options.const';
+import { ClipboardImageService } from '../../../core/clipboard-image/clipboard-image.service';
+import { clipboardHasText } from '../../../util/clipboard-has-text';
+import { EnlargeImgDirective } from '../../../ui/enlarge-img/enlarge-img.directive';
+import { nanoid } from 'nanoid';
 
 export interface TaskAddEvent {
   taskId: string;
@@ -137,6 +141,7 @@ export interface TaskAddEvent {
     AddTaskBarActionsComponent,
     TranslateModule,
     SelectOptionRowComponent,
+    EnlargeImgDirective,
   ],
   providers: [AddTaskBarStateService, AddTaskBarParserService],
 })
@@ -155,6 +160,7 @@ export class AddTaskBarComponent implements AfterViewInit, OnInit, OnDestroy {
   private readonly _store = inject(Store);
   private readonly _taskRepeatCfgService = inject(TaskRepeatCfgService);
   private readonly _markdownPasteService = inject(MarkdownPasteService);
+  private readonly _clipboardImageService = inject(ClipboardImageService);
   private readonly _dateService = inject(DateService);
   private readonly _dateTimeFormatService = inject(DateTimeFormatService);
   private readonly _menuTreeService = inject(MenuTreeService);
@@ -245,7 +251,10 @@ export class AddTaskBarComponent implements AfterViewInit, OnInit, OnDestroy {
   // is only visually shown while composing a task (hidden via visibility, not
   // display, so the input width never jumps).
   isSubmitVisible = computed(
-    () => !this.isSearchMode() && this.stateService.inputTxt().length > 0,
+    () =>
+      !this.isSearchMode() &&
+      (this.stateService.inputTxt().length > 0 ||
+        this.stateService.pastedAttachments().length > 0),
   );
 
   defaultProject$ = combineLatest([
@@ -549,10 +558,14 @@ export class AddTaskBarComponent implements AfterViewInit, OnInit, OnDestroy {
     }
 
     const currentState = this.stateService.state();
+    const pastedItems = this.stateService.pastedAttachments();
     const rawInput = this.stateService.inputTxt().trim();
-    if (!rawInput) return;
+    if (!rawInput && pastedItems.length === 0) return;
 
-    const title = currentState.cleanText || rawInput;
+    const title =
+      currentState.cleanText ||
+      rawInput ||
+      this._translateService.instant(T.F.TASK.ADDITIONAL_INFO.PASTED_IMAGE_TITLE);
     if (!title) return;
 
     this._isAddingTask = true;
@@ -575,6 +588,13 @@ export class AddTaskBarComponent implements AfterViewInit, OnInit, OnDestroy {
       }
 
       const additionalFields = this.additionalFields();
+      const pastedAttachments = pastedItems.map((item) => item.attachment);
+      const baseAttachments =
+        state.attachments.length > 0
+          ? state.attachments
+          : additionalFields?.attachments || [];
+      const mergedAttachments = [...baseAttachments, ...pastedAttachments];
+
       const taskData: Partial<TaskCopy> = {
         ...additionalFields,
         projectId: state.projectId,
@@ -583,10 +603,7 @@ export class AddTaskBarComponent implements AfterViewInit, OnInit, OnDestroy {
           : finalTagIds,
         // needs to be 0
         timeEstimate: state.estimate || 0,
-        attachments:
-          state.attachments.length > 0
-            ? state.attachments
-            : additionalFields?.attachments || [],
+        attachments: mergedAttachments,
       };
 
       const note = this.stateService.noteTxt().trim();
@@ -892,6 +909,10 @@ export class AddTaskBarComponent implements AfterViewInit, OnInit, OnDestroy {
   }
 
   onPaste(event: ClipboardEvent): void {
+    if (!this.isSearchMode() && this._tryHandleImagePaste(event)) {
+      return;
+    }
+
     const pastedText = event.clipboardData?.getData('text/plain');
     if (!pastedText) return;
 
@@ -910,6 +931,52 @@ export class AddTaskBarComponent implements AfterViewInit, OnInit, OnDestroy {
       .then(() => {
         this.stateService.updateInputTxt('');
       });
+  }
+
+  onNotePaste(event: ClipboardEvent): void {
+    this._tryHandleImagePaste(event);
+  }
+
+  removePastedAttachment(id: string, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.stateService.removePastedAttachment(id);
+  }
+
+  private _tryHandleImagePaste(event: ClipboardEvent): boolean {
+    if (!event.clipboardData || clipboardHasText(event.clipboardData)) {
+      return false;
+    }
+    const progress = this._clipboardImageService.handlePasteWithProgress(event);
+    if (!progress) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    void progress.resultPromise.then(async (result) => {
+      if (result.success && result.imageUrl) {
+        const previewUrl =
+          (await this._clipboardImageService.resolveClipboardImageUrl(result.imageUrl)) ||
+          result.imageUrl;
+        const id = nanoid();
+        this.stateService.addPastedAttachment({
+          id,
+          previewUrl,
+          attachment: {
+            id,
+            type: 'IMG',
+            path: result.imageUrl,
+            title: this._translateService.instant(
+              T.F.TASK.ADDITIONAL_INFO.PASTED_IMAGE_TITLE,
+            ),
+          },
+        });
+      }
+    });
+
+    return true;
   }
 
   @HostListener('document:click', ['$event'])

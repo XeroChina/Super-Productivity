@@ -332,6 +332,61 @@
   }
 }
 
+.pasted-attachments-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s);
+  padding: var(--s-half) var(--s2) var(--s);
+}
+
+.pasted-attachment-item {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.pasted-attachment-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--divider-color);
+  cursor: pointer;
+  background-color: var(--bg-slightly-lighter);
+}
+
+.pasted-attachment-remove-btn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background-color: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  transition: background-color var(--transition-fast);
+
+  &:hover,
+  &:focus-visible {
+    background-color: rgba(0, 0, 0, 0.85);
+  }
+
+  mat-icon {
+    width: 12px;
+    height: 12px;
+    font-size: 12px;
+    line-height: 12px;
+  }
+}
+
 // Wraps the two toggles (projected into the create-mode action bar or the search
 // info row) so a divider sits to their right, separating them from the
 // chips / search text that follow. Nesting the button rules here also lifts their

@@ -12,6 +12,12 @@ import { TaskAttachment } from '../task-attachment/task-attachment.model';
 import { ShortSyntaxRange } from '../short-syntax';
 import { normalizeClockStr } from '../../../util/normalize-clock-str';
 
+export interface PendingPastedImage {
+  id: string;
+  attachment: TaskAttachment;
+  previewUrl: string;
+}
+
 @Injectable()
 export class AddTaskBarStateService {
   private readonly _taskInputState: WritableSignal<AddTaskBarState> = signal({
@@ -31,6 +37,9 @@ export class AddTaskBarStateService {
   // Start expanded when reopening with a persisted draft note, so it is visible
   // rather than hidden behind the collapsed toggle.
   readonly isNoteExpanded = signal(!!this.noteTxt());
+
+  // TickTick-style pending pasted image attachments (kept separate from parser-owned `state.attachments`)
+  readonly pastedAttachments = signal<PendingPastedImage[]>([]);
 
   // Positions of detected short syntax in the current input, for the inline
   // highlight overlay. `forText` pins the ranges to the exact input string they
@@ -170,6 +179,14 @@ export class AddTaskBarStateService {
     }
   }
 
+  addPastedAttachment(item: PendingPastedImage): void {
+    this.pastedAttachments.update((list) => [...list, item]);
+  }
+
+  removePastedAttachment(id: string): void {
+    this.pastedAttachments.update((list) => list.filter((item) => item.id !== id));
+  }
+
   updateRepeatSetting(repeat: AddTaskBarRepeat, cleanedInputTxt?: string): void {
     this._taskInputState.update((state) => ({ ...state, repeat }));
     if (cleanedInputTxt !== undefined) {
@@ -247,6 +264,7 @@ export class AddTaskBarStateService {
     // Clear the note text but keep the panel expanded so consecutive
     // note-tasks stay convenient (mirrors how project/date are preserved).
     this.noteTxt.set('');
+    this.pastedAttachments.set([]);
     // Keep isAutoDetected as is to preserve project selection
   }
 

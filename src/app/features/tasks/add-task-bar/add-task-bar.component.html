@@ -103,6 +103,29 @@
     </div>
   </div>
 
+  @if (!isSearchMode() && stateService.pastedAttachments().length > 0) {
+    <div class="pasted-attachments-row">
+      @for (item of stateService.pastedAttachments(); track item.id) {
+        <div class="pasted-attachment-item">
+          <img
+            class="pasted-attachment-thumb"
+            [src]="item.previewUrl"
+            [enlargeImg]="item.previewUrl"
+            [alt]="item.attachment.title || ''"
+          />
+          <button
+            type="button"
+            class="pasted-attachment-remove-btn"
+            (click)="removePastedAttachment(item.id, $event)"
+            [attr.aria-label]="T.G.DELETE | translate"
+          >
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+      }
+    </div>
+  }
+
   <!-- Add-to-top/bottom and search toggles. They are prepended to the actions
        row (create mode) or the search info row so they scroll together with the
        rest of that row, instead of overlaying the input. -->
@@ -231,6 +254,7 @@
           [placeholder]="stateService.noteTxt() ? '' : notePlaceholder"
           [attr.aria-label]="notePlaceholder"
           (keydown)="onNoteKeydown($event)"
+          (paste)="onNotePaste($event)"
         ></textarea>
       </div>
     }

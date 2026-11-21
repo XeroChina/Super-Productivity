@@ -103,84 +103,29 @@ export class ClipboardImageService {
   private async _saveImageFromClipboard(
     clipboardData: DataTransfer,
   ): Promise<ClipboardImagePasteResult> {
-    // In Electron, first check if clipboard contains file paths
-    if (IS_ELECTRON) {
-      // Check for files in clipboard using clipboardData.files
-      if (clipboardData.files && clipboardData.files.length > 0) {
-        // Try to get file paths using webUtils.getPathForFile
-        for (let i = 0; i < clipboardData.files.length; i++) {
-          const file = clipboardData.files[i];
+    // 1. Extract image Blob from clipboardData and convert to WebP/JPEG first
+    let imageBlob = await this._extractImageFromClipboard(clipboardData);
 
-          if (file.type.startsWith('image/')) {
-            try {
-              const filePath = window.ea.getPathForFile(file);
-
-              if (filePath) {
-                // Copy to clipboard-images dir so the URL lands in our controlled
-                // directory and can be resolved to a blob: URL before rendering.
-                // Chromium blocks http://localhost → file:// subresource loads
-                // regardless of CSP, so we must convert to a same-origin blob: URL.
-                const basePath = await this._getElectronImagePath();
-                const copyResult = await window.ea.copyClipboardImageFile(
-                  basePath,
-                  filePath,
-                );
-                if (copyResult) {
-                  const savedFilePath = await window.ea.getClipboardImagePath(
-                    basePath,
-                    copyResult.id,
-                  );
-                  if (savedFilePath) {
-                    const imageUrl = pathToFileUrl(savedFilePath);
-                    const fileName = file.name || 'image';
-                    const fileNameWithoutExt = fileName.replace(/\.[^.]+$/, '');
-                    const markdownText = `![${fileNameWithoutExt}](${imageUrl})`;
-
-                    this._snackService.open({
-                      type: 'SUCCESS',
-                      msg: T.F.CLIPBOARD_IMAGE.PASTE_SUCCESS,
-                    });
-
-                    return { success: true, imageUrl, markdownText };
-                  }
-                }
-              }
-            } catch (error) {
-              Log.err('[CLIPBOARD] Error getting file path:', error);
-            }
-          }
-        }
-      }
-
-      // Try reading image directly from clipboard using Electron API
+    // 2. In Electron, if clipboardData had no direct image blob, try reading from native clipboard
+    if (!imageBlob && IS_ELECTRON) {
       const basePath = await this._getElectronImagePath();
       const result = await window.ea.readClipboardImage(basePath);
-
       if (result) {
-        // Get the saved file path and generate file:// URL
-        const savedFilePath = await window.ea.getClipboardImagePath(basePath, result.id);
-        if (savedFilePath) {
-          const imageUrl = pathToFileUrl(savedFilePath);
-          const markdownText = `![pasted image](${imageUrl})`;
-
-          this._snackService.open({
-            type: 'SUCCESS',
-            msg: T.F.CLIPBOARD_IMAGE.PASTE_SUCCESS,
-          });
-
-          return { success: true, imageUrl, markdownText };
+        const rawBlob = await this._getImageElectron(result.id);
+        if (rawBlob) {
+          await this._deleteImageElectron(result.id);
+          imageBlob = rawBlob;
         }
       }
     }
 
-    // Fall back to extracting image from clipboard data
-    const imageBlob = await this._extractImageFromClipboard(clipboardData);
     if (!imageBlob) {
       return { success: false };
     }
 
     try {
-      const imageUrl = await this.saveImage(imageBlob);
+      const convertedBlob = await this._convertImageToWebpOrJpeg(imageBlob);
+      const imageUrl = await this.saveImage(convertedBlob);
       if (!imageUrl) {
         return { success: false, errorMessage: 'Failed to save image' };
       }
@@ -202,6 +147,49 @@ export class ClipboardImageService {
         success: false,
         errorMessage: error instanceof Error ? error.message : 'Unknown error',
       };
+    }
+  }
+
+  /**
+   * Converts a pasted image Blob (e.g. uncompressed PNG screenshot) into a compact
+   * WebP (or JPEG fallback) Blob so attachments stay small on disk and in IndexedDB.
+   */
+  private async _convertImageToWebpOrJpeg(blob: Blob): Promise<Blob> {
+    // Keep animated GIFs or SVGs or already-WebP/JPEG files as-is if already compact
+    if (
+      blob.type === 'image/webp' ||
+      blob.type === 'image/gif' ||
+      blob.type === 'image/svg+xml'
+    ) {
+      return blob;
+    }
+
+    try {
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        bitmap.close();
+        return blob;
+      }
+      ctx.drawImage(bitmap, 0, 0);
+      bitmap.close();
+
+      const webpBlob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/webp', 0.88),
+      );
+      if (webpBlob && webpBlob.type === 'image/webp') {
+        return webpBlob;
+      }
+
+      const jpegBlob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.88),
+      );
+      return jpegBlob || blob;
+    } catch {
+      return blob;
     }
   }
 

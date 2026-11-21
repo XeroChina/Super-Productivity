@@ -266,11 +266,23 @@ export class TaskTitleComponent implements OnDestroy {
     this.updateTmpValue(target.value, target);
   }
 
-  // Sanitize pasted content (remove newlines)
+  // Sanitize pasted content (remove newlines) when pasting text; let image pastes bubble
   handlePaste(event: ClipboardEvent): void {
-    event.preventDefault();
-
     const pastedText = event.clipboardData?.getData('text/plain') || '';
+    if (!pastedText && event.clipboardData) {
+      const hasImage =
+        Array.from(event.clipboardData.items || []).some((item) =>
+          item.type.startsWith('image/'),
+        ) ||
+        Array.from(event.clipboardData.files || []).some((file) =>
+          file.type.startsWith('image/'),
+        );
+      if (hasImage) {
+        return;
+      }
+    }
+
+    event.preventDefault();
     const cleaned = this._sanitizeForEditing(pastedText);
 
     const textarea = this.textarea()?.nativeElement;

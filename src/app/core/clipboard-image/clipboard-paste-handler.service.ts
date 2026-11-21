@@ -53,8 +53,29 @@ export class ClipboardPasteHandlerService {
     if (!progress) return false;
 
     ev.preventDefault();
+    ev.stopPropagation();
 
-    // Clean up old placeholder if exists
+    const taskId = context.getTaskId();
+
+    // TickTick-style behavior for task inputs: save pasted image directly as a task
+    // attachment without inserting raw markdown image syntax into the text content.
+    if (taskId) {
+      const result = await progress.resultPromise;
+      if (result.success && result.imageUrl) {
+        this._taskAttachmentService.addAttachment(taskId, {
+          id: null,
+          type: 'IMG',
+          path: result.imageUrl,
+          title: this._translateService.instant(
+            T.F.TASK.ADDITIONAL_INFO.PASTED_IMAGE_TITLE,
+          ),
+        });
+        context.onPasteComplete?.(context.getContent());
+      }
+      return true;
+    }
+
+    // Clean up old placeholder if exists (for standalone project notes without attachments)
     if (context.currentPlaceholder.get()) {
       const cleaned = context.getContent().replace(context.currentPlaceholder.get()!, '');
       context.setContent(cleaned);

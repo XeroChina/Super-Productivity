@@ -5,7 +5,11 @@ const path = require('node:path');
 
 require('ts-node/register/transpile-only');
 
-const { resolveSnapUserDataDir, applySnapUserDataDir } = require('./user-data-dir.ts');
+const {
+  resolvePortableUserDataDir,
+  resolveSnapUserDataDir,
+  applySnapUserDataDir,
+} = require('./user-data-dir.ts');
 
 const SNAP_ENV = {
   SNAP: '/snap/superproductivity/4925',
@@ -75,4 +79,38 @@ test('main.ts moves the snap userData before requesting the single-instance lock
   const lockAt = src.indexOf('requestSingleInstanceLock(');
   assert.ok(applyAt > -1 && lockAt > -1);
   assert.ok(applyAt < lockAt);
+});
+
+test('resolvePortableUserDataDir detects portable flag in parent dir (Program/ layout)', () => {
+  const execPath = path.resolve('/apps/SuperProductivity/Program/Super Productivity.exe');
+  const rootDir = path.dirname(path.dirname(execPath));
+  const portableMarker = path.join(rootDir, 'portable');
+  const dir = resolvePortableUserDataDir({
+    argv: [execPath],
+    execPath,
+    existsSync: (p) => p === portableMarker,
+  });
+  assert.equal(dir, path.join(rootDir, 'Data'));
+});
+
+test('resolvePortableUserDataDir detects portable flag alongside executable', () => {
+  const execPath = path.resolve('/apps/SuperProductivity/Super Productivity.exe');
+  const exeDir = path.dirname(execPath);
+  const portableMarker = path.join(exeDir, 'portable');
+  const dir = resolvePortableUserDataDir({
+    argv: [execPath],
+    execPath,
+    existsSync: (p) => p === portableMarker,
+  });
+  assert.equal(dir, path.join(exeDir, 'Data'));
+});
+
+test('resolvePortableUserDataDir yields to --user-data-dir flag', () => {
+  const execPath = path.resolve('/apps/SuperProductivity/Program/Super Productivity.exe');
+  const dir = resolvePortableUserDataDir({
+    argv: [execPath, '--user-data-dir=/custom/dir'],
+    execPath,
+    existsSync: () => true,
+  });
+  assert.equal(dir, undefined);
 });
