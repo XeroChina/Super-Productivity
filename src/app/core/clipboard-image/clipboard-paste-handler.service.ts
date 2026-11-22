@@ -106,19 +106,6 @@ export class ClipboardPasteHandlerService {
           .replace(progress.placeholderText, result.markdownText);
         context.setContent(finalContent);
 
-        // Add attachment if taskId provided
-        const taskId = context.getTaskId();
-        if (taskId && result.imageUrl) {
-          this._taskAttachmentService.addAttachment(taskId, {
-            id: null,
-            type: 'IMG',
-            path: result.imageUrl,
-            title: this._translateService.instant(
-              T.F.TASK.ADDITIONAL_INFO.PASTED_IMAGE_TITLE,
-            ),
-          });
-        }
-
         // Move cursor
         const newCursorPos = selectionStart + result.markdownText.length;
         setTimeout(() => {
