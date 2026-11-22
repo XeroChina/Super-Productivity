@@ -4,6 +4,7 @@ import {
   HostListener,
   inject,
   input,
+  OnDestroy,
   Renderer2,
 } from '@angular/core';
 import { getCoords } from './get-coords';
@@ -11,7 +12,7 @@ import { getCoords } from './get-coords';
 const LARGE_IMG_ID = 'enlarged-img';
 
 @Directive({ selector: '[enlargeImg]' })
-export class EnlargeImgDirective {
+export class EnlargeImgDirective implements OnDestroy {
   private _renderer = inject(Renderer2);
   private _el = inject(ElementRef);
 
@@ -22,11 +23,22 @@ export class EnlargeImgDirective {
   isImg?: boolean;
   zoomMode: number = 0;
   zoomMoveHandler?: (ev: MouseEvent) => void;
+  private _keydownHandler?: (ev: KeyboardEvent) => void;
+  private _isClosing = false;
 
   readonly enlargeImg = input<string>();
 
   constructor() {
     this.imageEl = this._el.nativeElement;
+  }
+
+  ngOnDestroy(): void {
+    this._removeKeydownListener();
+    if (this.enlargedImgWrapperEl && this.zoomMoveHandler) {
+      this.enlargedImgWrapperEl.removeEventListener('mousemove', this.zoomMoveHandler);
+    }
+    this.enlargedImgWrapperEl?.remove();
+    this.enlargedImgWrapperEl = undefined;
   }
 
   @HostListener('click') onClick(): void {
@@ -37,19 +49,37 @@ export class EnlargeImgDirective {
     }
   }
 
-  private _hideImg(): void {
-    this._setOriginCoordsForImageAni();
-    this._renderer.addClass(this.enlargedImgWrapperEl, 'ani-remove');
-    this._renderer.removeClass(this.enlargedImgWrapperEl, 'ani-enter');
-    if (!this.enlargedImgWrapperEl) {
-      throw new Error();
+  private _removeKeydownListener(): void {
+    if (this._keydownHandler) {
+      document.removeEventListener('keydown', this._keydownHandler, true);
+      this._keydownHandler = undefined;
     }
-    this.enlargedImgWrapperEl.addEventListener('transitionend', () => {
-      if (!this.enlargedImgWrapperEl) {
-        throw new Error();
+  }
+
+  private _hideImg(): void {
+    if (this._isClosing || !this.enlargedImgWrapperEl) {
+      return;
+    }
+    this._isClosing = true;
+    this._removeKeydownListener();
+    if (this.zoomMoveHandler) {
+      this.enlargedImgWrapperEl.removeEventListener('mousemove', this.zoomMoveHandler);
+      this.zoomMoveHandler = undefined;
+    }
+    const wrapperEl = this.enlargedImgWrapperEl;
+    this._setOriginCoordsForImageAni();
+    this._renderer.addClass(wrapperEl, 'ani-remove');
+    this._renderer.removeClass(wrapperEl, 'ani-enter');
+    const cleanup = (): void => {
+      wrapperEl.remove();
+      if (this.enlargedImgWrapperEl === wrapperEl) {
+        this.enlargedImgWrapperEl = undefined;
       }
-      this.enlargedImgWrapperEl.remove();
-    });
+      this._isClosing = false;
+    };
+    wrapperEl.addEventListener('transitionend', cleanup, { once: true });
+    // Fallback when animations are disabled or transitionend never fires
+    window.setTimeout(cleanup, 300);
   }
 
   private _setOriginCoordsForImageAni(): void {
@@ -89,9 +119,20 @@ export class EnlargeImgDirective {
       this._hideImg();
     };
 
+    this._isClosing = false;
     this.enlargedImgWrapperEl = this._htmlToElement(
       `<div class="enlarged-image-wrapper"></div>`,
     );
+    const closeBtnEl = document.createElement('button');
+    closeBtnEl.type = 'button';
+    closeBtnEl.className = 'enlarged-image-close-btn';
+    closeBtnEl.setAttribute('aria-label', 'Close');
+    closeBtnEl.textContent = '×';
+    closeBtnEl.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this._hideImg();
+    });
     // SECURITY: build the <img> via DOM properties, never innerHTML. `src` can
     // originate from synced/imported note data (note.imgUrl); interpolating it
     // into an HTML string let a crafted URL break out of the src attribute and
@@ -101,9 +142,20 @@ export class EnlargeImgDirective {
     newImageEl.className = 'enlarged-image';
     newImageEl.id = LARGE_IMG_ID;
     this.newImageEl = newImageEl;
+    this._renderer.appendChild(this.enlargedImgWrapperEl, closeBtnEl);
     this._renderer.appendChild(this.enlargedImgWrapperEl, this.newImageEl);
     this._renderer.appendChild(this.lightboxParentEl, this.enlargedImgWrapperEl);
     this.zoomMode = 0;
+
+    this._removeKeydownListener();
+    this._keydownHandler = (ev: KeyboardEvent): void => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this._hideImg();
+      }
+    };
+    document.addEventListener('keydown', this._keydownHandler, true);
     this.enlargedImgWrapperEl.addEventListener('click', () => {
       if (this.zoomMode === 0) {
         this._hideImg();
